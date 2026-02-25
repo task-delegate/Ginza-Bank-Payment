@@ -34,13 +34,24 @@ app.set("trust proxy", 1);
 app.use(
   cookieSession({
     name: "session",
-    keys: ["ginza-secret-key-v2"],
+    secret: "ginza-payment-system-secret-v3", // Using secret for better stability
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     secure: true,
     sameSite: "none",
     httpOnly: true,
   })
 );
+
+// --- Debug Routes ---
+app.get("/api/debug/session", (req, res) => {
+  res.json({
+    hasSession: !!req.session,
+    hasUser: !!req.session?.user,
+    user: req.session?.user || null,
+    env: process.env.NODE_ENV,
+    vercel: !!process.env.VERCEL
+  });
+});
 
 // --- API Routes ---
 

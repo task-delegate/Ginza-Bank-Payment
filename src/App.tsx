@@ -266,6 +266,10 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
       url += `?view=${activeTab === 'finance' ? 'finance' : 'unit'}`;
     }
     const res = await fetch(url, { credentials: 'include' });
+    if (res.status === 401) {
+      onLogout();
+      return;
+    }
     const data = await res.json();
     setOrders(data.orders);
   };
@@ -296,6 +300,10 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
         body: JSON.stringify({ orderIds: Array.from(selectedOrders) }),
         credentials: 'include'
       });
+      if (res.status === 401) {
+        onLogout();
+        return;
+      }
       if (res.ok) {
         setSelectedOrders(new Set());
         fetchOrders();
@@ -314,6 +322,10 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
         body: JSON.stringify({ orderIds: Array.from(selectedOrders), bank }),
         credentials: 'include'
       });
+      if (res.status === 401) {
+        onLogout();
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         setSelectedOrders(new Set());
