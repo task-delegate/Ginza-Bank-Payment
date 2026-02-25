@@ -96,7 +96,13 @@ function AuthForm({ onLogin }: { onLogin: (u: UserData) => void }) {
   const [units, setUnits] = useState<string[]>([]);
 
   useEffect(() => {
-    fetch("/api/units").then(r => r.json()).then(d => setUnits(d.units));
+    fetch("/api/units")
+      .then(r => r.json())
+      .then(d => {
+        if (Array.isArray(d)) setUnits(d);
+        else if (d && d.units) setUnits(d.units);
+      })
+      .catch(err => console.error("Units fetch error:", err));
   }, []);
 
   const { register, handleSubmit, watch, formState: { errors } } = useForm<any>();
@@ -190,10 +196,20 @@ function AuthForm({ onLogin }: { onLogin: (u: UserData) => void }) {
               <>
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-900">Units (Select Multiple)</label>
-                  <select multiple {...register("units", { required: true })} className="w-full border border-slate-200 rounded-lg p-2 text-xs font-medium h-32 focus:border-[#673ab7] outline-none">
-                    {units.map(u => <option key={u} value={u} className="p-1">{u}</option>)}
-                  </select>
-                  <p className="text-[10px] text-slate-400 font-medium">Hold Ctrl (or Cmd) to select multiple units</p>
+                  <div className="grid grid-cols-2 gap-2 border border-slate-200 rounded-lg p-3 max-h-48 overflow-y-auto">
+                    {units.map(u => (
+                      <label key={u} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors">
+                        <input 
+                          type="checkbox" 
+                          value={u} 
+                          {...register("units", { required: true })} 
+                          className="w-4 h-4 rounded border-slate-300 text-[#673ab7] focus:ring-[#673ab7]"
+                        />
+                        <span className="text-[10px] font-medium text-slate-700">{u}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {errors.units && <p className="text-[10px] font-bold text-red-500">Please select at least one unit</p>}
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-bold text-slate-900">Role</label>
