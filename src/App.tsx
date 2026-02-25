@@ -64,7 +64,7 @@ export default function App() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch("/api/auth/me");
+        const res = await fetch("/api/auth/me", { credentials: 'include' });
         const data = await res.json();
         if (data.user) setUser(data.user);
       } catch (e) {}
@@ -96,7 +96,7 @@ function AuthForm({ onLogin }: { onLogin: (u: UserData) => void }) {
   const [units, setUnits] = useState<string[]>([]);
 
   useEffect(() => {
-    fetch("/api/units")
+    fetch("/api/units", { credentials: 'include' })
       .then(r => r.json())
       .then(d => {
         if (Array.isArray(d)) setUnits(d);
@@ -116,6 +116,7 @@ function AuthForm({ onLogin }: { onLogin: (u: UserData) => void }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
+        credentials: 'include'
       });
       const result = await res.json();
       if (res.ok) {
@@ -264,7 +265,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
     if (user.role === 'Master') {
       url += `?view=${activeTab === 'finance' ? 'finance' : 'unit'}`;
     }
-    const res = await fetch(url);
+    const res = await fetch(url, { credentials: 'include' });
     const data = await res.json();
     setOrders(data.orders);
   };
@@ -274,7 +275,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
   }, [activeTab]);
 
   const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await fetch("/api/auth/logout", { method: "POST", credentials: 'include' });
     onLogout();
   };
 
@@ -293,6 +294,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderIds: Array.from(selectedOrders) }),
+        credentials: 'include'
       });
       if (res.ok) {
         setSelectedOrders(new Set());
@@ -310,6 +312,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderIds: Array.from(selectedOrders), bank }),
+        credentials: 'include'
       });
       const data = await res.json();
       if (data.success) {

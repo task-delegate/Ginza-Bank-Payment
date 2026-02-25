@@ -29,6 +29,8 @@ const ALL_UNITS = [
 
 app.use(express.json());
 
+app.set("trust proxy", 1);
+
 app.use(
   cookieSession({
     name: "session",
@@ -237,7 +239,9 @@ app.get("/api/orders", async (req, res) => {
 app.post("/api/orders/approve", async (req, res) => {
   const { orderIds } = req.body;
   const sessionUser = req.session?.user;
-  if (!sessionUser || !supabase) return res.status(401).json({ error: "Unauthorized" });
+  
+  if (!sessionUser) return res.status(401).json({ error: "Unauthorized: No session found" });
+  if (!supabase) return res.status(500).json({ error: "Server Configuration Error: Supabase not initialized" });
 
   try {
     const { data: orders } = await supabase.from("orders").select("*").in("id", orderIds);
@@ -264,7 +268,9 @@ app.post("/api/orders/approve", async (req, res) => {
 app.post("/api/orders/set-payment-mode", async (req, res) => {
   const { orderIds, bank } = req.body;
   const sessionUser = req.session?.user;
-  if (!sessionUser || !supabase) return res.status(401).json({ error: "Unauthorized" });
+  
+  if (!sessionUser) return res.status(401).json({ error: "Unauthorized: No session found" });
+  if (!supabase) return res.status(500).json({ error: "Server Configuration Error: Supabase not initialized" });
 
   try {
     const { data: orders } = await supabase.from("orders").select("*").in("id", orderIds);
