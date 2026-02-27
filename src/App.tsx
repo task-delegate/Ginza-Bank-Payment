@@ -262,9 +262,6 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
 
   const fetchOrders = async () => {
     let url = "/api/orders";
-    if (user.role === 'Master') {
-      url += `?view=${activeTab === 'finance' ? 'finance' : 'unit'}`;
-    }
     const res = await fetch(url, { credentials: 'include' });
     if (res.status === 401) {
       onLogout();
@@ -336,7 +333,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
   };
 
   const filteredOrders = orders.filter(o => {
-    const matchesDate = filterDate ? new Date(o.timestamp).toISOString().split('T')[0] === filterDate : true;
+    const matchesDate = filterDate ? new Date(o.created_at).toISOString().split('T')[0] === filterDate : true;
     const matchesUnit = filterUnit ? o.unit.toLowerCase().includes(filterUnit.toLowerCase()) : true;
     const matchesBeneficiary = filterBeneficiary ? o.beneficiary_name.toLowerCase().includes(filterBeneficiary.toLowerCase()) : true;
     const status = o.processed_by_finance ? "Paid" : o.approved_by_unit ? "Approved" : "Pending";
@@ -377,7 +374,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
           )}
           
           {user.role === 'Unit Team' && (
-            <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Calendar className="w-4 h-4" />} label="Database" />
+            <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Calendar className="w-4 h-4" />} label="My Records" />
           )}
 
           {user.role === 'Finance Team' && (
@@ -385,10 +382,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
           )}
 
           {user.role === 'Master' && (
-            <>
-              <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Calendar className="w-4 h-4" />} label="Unit Submissions" />
-              <TabButton active={activeTab === 'finance'} onClick={() => setActiveTab('finance')} icon={<IndianRupee className="w-4 h-4" />} label="Finance View" />
-            </>
+            <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Calendar className="w-4 h-4" />} label="All Records" />
           )}
         </div>
 
@@ -399,25 +393,39 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
             </motion.div>
           )}
 
-          {(activeTab === 'history' || (activeTab === 'finance' && user.role === 'Master')) && (
+          {activeTab === 'history' && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
               <div className="p-6 border-b border-slate-100 space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-4">
                   <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">
-                    {activeTab === 'history' ? (user.role === 'Master' ? "All Submissions" : "Records Table") : "Finance Processing View"}
+                    {user.role === 'Unit Team' ? "My Records" : user.role === 'Finance Team' ? "Pending Processing" : "All Records"}
                   </h2>
-                  <div className="flex gap-2">
-                    {(user.role === 'Finance Team' || user.role === 'Master') && activeTab === 'history' && (
+                  
+                  {/* ✅ Show buttons only for Finance Team and Master */}
+                  <div className="flex gap-2 flex-wrap">
+                    {(user.role === 'Finance Team' || user.role === 'Master') && (
                       <>
                         <button 
                           onClick={handleApprove}
                           disabled={selectedOrders.size === 0 || processing}
                           className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-emerald-600 disabled:opacity-50 transition-all"
                         >
-                          {processing ? "..." : "Approve Selected"}
+                          {processing ? "Processing..." : `✓ Approve Selected (${selectedOrders.size})`}
                         </button>
-                        <button onClick={() => handleSetPaymentMode('UBI')} disabled={selectedOrders.size === 0 || processing} className="bg-[#673ab7] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-[#5e35b1] disabled:opacity-50 transition-all">UBI Payment</button>
-                        <button onClick={() => handleSetPaymentMode('SBI')} disabled={selectedOrders.size === 0 || processing} className="bg-[#673ab7] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-[#5e35b1] disabled:opacity-50 transition-all">SBI Payment</button>
+                        <button 
+                          onClick={() => handleSetPaymentMode('UBI')} 
+                          disabled={selectedOrders.size === 0 || processing} 
+                          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700 disabled:opacity-50 transition-all"
+                        >
+                          💳 UBI Payment
+                        </button>
+                        <button 
+                          onClick={() => handleSetPaymentMode('SBI')} 
+                          disabled={selectedOrders.size === 0 || processing} 
+                          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700 disabled:opacity-50 transition-all"
+                        >
+                          💳 SBI Payment
+                        </button>
                       </>
                     )}
                   </div>
@@ -453,9 +461,12 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50">
-                      <th className="p-4 border-b border-slate-100 w-10">
-                        <Square className="w-4 h-4 text-slate-300" />
-                      </th>
+                      {/* ✅ Show checkbox only for Finance Team and Master */}
+                      {(user.role === 'Finance Team' || user.role === 'Master') && (
+                        <th className="p-4 border-b border-slate-100 w-10">
+                          <Square className="w-4 h-4 text-slate-300" />
+                        </th>
+                      )}
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Date</th>
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Unit</th>
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Bill Date</th>
@@ -465,26 +476,30 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Amount</th>
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Status</th>
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Payment Mode</th>
+                      <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Approved By</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredOrders.length === 0 ? (
-                      <tr><td colSpan={8} className="p-12 text-center text-slate-400 font-bold uppercase text-xs">No records found</td></tr>
+                      <tr><td colSpan={user.role === 'Unit Team' ? 10 : 11} className="p-12 text-center text-slate-400 font-bold uppercase text-xs">No records found</td></tr>
                     ) : (
                       filteredOrders.map((o) => (
-                        <tr key={o.id} className={`transition-colors group ${o.processed_by_finance ? "bg-emerald-100/60" : o.approved_by_unit ? "bg-emerald-50/60" : "hover:bg-slate-50"}`}>
-                          <td className="p-4 border-b border-slate-50">
-                            {((user.role === 'Finance Team' || user.role === 'Master') && !o.processed_by_finance) ? (
-                              <button onClick={() => toggleOrderSelection(o.id)} className="text-[#673ab7]">
-                                {selectedOrders.has(o.id) ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
-                              </button>
-                            ) : (
-                              <div className="text-emerald-600">
-                                <CheckCircle2 className="w-5 h-5 fill-emerald-50" />
-                              </div>
-                            )}
-                          </td>
-                          <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{new Date(o.timestamp).toLocaleDateString()}</td>
+                        <tr key={o.id} className={`transition-colors group ${o.processed_by_finance ? "bg-emerald-100/60" : o.approved_by_unit ? "bg-blue-50/60" : "hover:bg-slate-50"}`}>
+                          {/* ✅ Show checkbox only for Finance Team and Master */}
+                          {(user.role === 'Finance Team' || user.role === 'Master') && (
+                            <td className="p-4 border-b border-slate-50">
+                              {!o.processed_by_finance ? (
+                                <button onClick={() => toggleOrderSelection(o.id)} className="text-[#673ab7]">
+                                  {selectedOrders.has(o.id) ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
+                                </button>
+                              ) : (
+                                <div className="text-emerald-600">
+                                  <CheckCircle2 className="w-5 h-5 fill-emerald-50" />
+                                </div>
+                              )}
+                            </td>
+                          )}
+                          <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{new Date(o.created_at).toLocaleDateString()}</td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-black text-slate-900">{o.unit}</td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{new Date(o.bill_date).toLocaleDateString()}</td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{new Date(o.due_date).toLocaleDateString()}</td>
@@ -493,12 +508,17 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                           <td className="p-4 border-b border-slate-50 text-[10px] font-black text-[#673ab7]">₹{o.amount.toLocaleString()}</td>
                           <td className="p-4 border-b border-slate-50">
                             <span className={`text-[8px] font-black px-2 py-1 rounded uppercase tracking-widest ${
-                              o.approved_by_unit ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"
+                              o.processed_by_finance 
+                                ? "bg-emerald-100 text-emerald-700"
+                                : o.approved_by_unit 
+                                  ? "bg-blue-100 text-blue-700"
+                                  : "bg-amber-100 text-amber-700"
                             }`}>
-                              {o.approved_by_unit ? "Approved" : "Pending"}
+                              {o.processed_by_finance ? "Paid" : o.approved_by_unit ? "Approved" : "Pending"}
                             </span>
                           </td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-black text-slate-900 uppercase">{o.payment_method || "-"}</td>
+                          <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{o.approval_by_name || "-"}</td>
                         </tr>
                       ))
                     )}
@@ -549,7 +569,10 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
   const watchedBeneficiaryName = watch("beneficiaryName");
 
   useEffect(() => {
-    fetch("/api/units").then(r => r.json()).then(d => setUnits(d.units));
+    fetch("/api/units").then(r => r.json()).then(d => {
+      if (Array.isArray(d)) setUnits(d);
+      else if (d && d.units) setUnits(d.units);
+    });
   }, []);
 
   useEffect(() => {
@@ -619,7 +642,7 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
         <div className="space-y-4">
           <div className="space-y-2">
             <label className="text-sm font-black text-slate-900">Email Address <span className="text-red-500 font-black">*</span></label>
-            <input {...register("email")} placeholder="your.email@ginzalimited.com" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all placeholder:text-slate-300 placeholder:font-normal" />
+            <input {...register("email")} placeholder="your.email@ginzalimited.com" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all" />
             {errors.email && <p className="text-[10px] font-bold text-red-500">{errors.email.message}</p>}
           </div>
 
@@ -639,7 +662,7 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
         <div className="space-y-4">
           <div className="space-y-2 relative">
             <label className="text-sm font-black text-slate-900">Beneficiary Name <span className="text-red-500 font-black">*</span></label>
-            <input {...register("beneficiaryName")} placeholder="Search or enter name" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all placeholder:text-slate-300 placeholder:font-normal" />
+            <input {...register("beneficiaryName")} placeholder="Search or enter name" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all" />
             {showSuggestions && beneficiarySuggestions.length > 0 && (
               <div className="absolute z-50 w-full bg-white border border-slate-200 rounded-lg shadow-xl mt-1 overflow-hidden">
                 {beneficiarySuggestions.map((b, i) => (
@@ -661,12 +684,12 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-sm font-black text-slate-900">Account Number <span className="text-red-500 font-black">*</span></label>
-              <input {...register("accountNo")} placeholder="Bank Account #" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all placeholder:text-slate-300 placeholder:font-normal" />
+              <input {...register("accountNo")} placeholder="Bank Account #" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all" />
               {errors.accountNo && <p className="text-[10px] font-bold text-red-500">{errors.accountNo.message}</p>}
             </div>
             <div className="space-y-2">
               <label className="text-sm font-black text-slate-900">IFSC Code <span className="text-red-500 font-black">*</span></label>
-              <input {...register("ifscCode")} placeholder="11-character IFSC" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all placeholder:text-slate-300 placeholder:font-normal" />
+              <input {...register("ifscCode")} placeholder="11-character IFSC" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all" />
               {errors.ifscCode && <p className="text-[10px] font-bold text-red-500">{errors.ifscCode.message}</p>}
             </div>
           </div>
@@ -677,47 +700,4 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
       <div className="bg-white rounded-xl shadow-md p-6 space-y-6">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-black text-slate-900 uppercase">Bill Details</h3>
-          <button type="button" onClick={() => append({ billDate: "", dueDate: "", amount: "" as any })} className="text-[10px] font-black text-[#673ab7] uppercase tracking-widest hover:bg-indigo-50 px-2 py-1 rounded transition-all">+ADD NEW</button>
-        </div>
-        
-        <div className="space-y-4">
-          {fields.map((f, i) => (
-            <div key={f.id} className="p-4 bg-slate-50 rounded-lg border border-slate-100 relative group space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-500">Bill Date</label>
-                  <input type="date" {...register(`bills.${i}.billDate`)} className="w-full bg-transparent border-b border-slate-200 py-1 text-xs font-black outline-none focus:border-[#673ab7]" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-500">Due Date</label>
-                  <input type="date" {...register(`bills.${i}.dueDate`)} className="w-full bg-transparent border-b border-slate-200 py-1 text-xs font-black outline-none focus:border-[#673ab7]" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-500">Amount</label>
-                  <div className="relative">
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-black">₹</span>
-                    <input type="number" step="0.01" {...register(`bills.${i}.amount`, { valueAsNumber: true })} className="w-full bg-transparent border-b border-slate-200 py-1 pl-3 text-xs font-black outline-none focus:border-[#673ab7]" />
-                  </div>
-                </div>
-              </div>
-              {fields.length > 1 && (
-                <button type="button" onClick={() => remove(i)} className="absolute -right-2 -top-2 bg-white p-1.5 rounded-full shadow-md text-slate-300 hover:text-red-500 transition-all border border-slate-100">
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-[10px] font-black uppercase text-center border border-red-100">{error}</div>}
-
-      <div className="flex items-center justify-between pt-4">
-        <button type="button" onClick={() => { reset(); setError(null); }} className="text-xs font-black text-slate-500 hover:text-slate-700 px-4 py-2 uppercase tracking-widest transition-all">Clear Form</button>
-        <button disabled={submitting} className="bg-[#673ab7] text-white px-10 py-3 rounded-lg font-black text-sm shadow-lg hover:bg-[#5e35b1] transition-all flex items-center gap-2 uppercase tracking-widest">
-          {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-4 h-4" /> Submit Responses</>}
-        </button>
-      </div>
-    </form>
-  );
-}
+          <button type="button" onClick={() => append({ billDate: "", dueDate: "",
