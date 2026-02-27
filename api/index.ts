@@ -13,13 +13,13 @@ const supabaseUrlRaw = process.env.SUPABASE_URL || "vgvnahcunvwigwaniejg";
 const supabaseUrl = supabaseUrlRaw.includes("://") 
   ? supabaseUrlRaw 
   : `https://${supabaseUrlRaw}.supabase.co`;
-const supabaseKey = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZndm5haGN1bnZ3aWd3YW5pZWpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5MDQ2MDgsImV4cCI6MjA4NzQ4MDYwOH0.qvv-O8mhmcpL1gDmP7kpd6mUzDvN1DZsqawy1KK2qCY";
+const supabaseKey = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZndm5haGN1bnZ3aWd3YW5pZWpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5MDQ2MDgsImV4c...";
 
 const supabase = supabaseUrl && supabaseKey 
   ? createClient(supabaseUrl, supabaseKey)
   : null;
 
-// Google Sheets configuration (Using Apps Script Web App)
+// Google Sheets configuration
 const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL || "https://script.google.com/macros/s/AKfycbyKJhtxHZuaNb-5QEX2EmW5uzegW71gHB5FmAd_u7nCQVNxuUpJWlHxoZ6yg6wc3pE8/exec";
 
 const ALL_UNITS = [
@@ -28,21 +28,20 @@ const ALL_UNITS = [
 ];
 
 app.use(express.json());
-
 app.set("trust proxy", 1);
 
 app.use(
   cookieSession({
     name: "session",
-    secret: "ginza-payment-system-secret-v3", // Using secret for better stability
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    secret: "ginza-payment-system-secret-v3",
+    maxAge: 24 * 60 * 60 * 1000,
     secure: true,
     sameSite: "none",
     httpOnly: true,
   })
 );
 
-// --- Debug Routes ---
+// Debug route
 app.get("/api/debug/session", (req, res) => {
   res.json({
     hasSession: !!req.session,
@@ -53,8 +52,7 @@ app.get("/api/debug/session", (req, res) => {
   });
 });
 
-// --- API Routes ---
-
+// API Routes
 app.get("/api/units", (req, res) => {
   res.json(ALL_UNITS);
 });
@@ -204,7 +202,7 @@ app.post("/api/submit", async (req, res) => {
 
   try {
     if (supabase) {
-      await supabase.from("beneficiary_details").upsert({ name: beneficiaryName, account_no: accountNo, ifsc_code: ifscCode }, { onConflict: "name" });
+      await  else if (role === "Finance Team") {supabase.from("beneficiary_details").insert({ name: beneficiaryName, account_no: accountNo, ifsc_code: ifscCode }).catch(() => {});
       const supabaseOrders = bills.map((bill: any) => ({
         email, unit, beneficiary_name: beneficiaryName, account_no: accountNo, ifsc_code: ifscCode,
         bill_date: bill.billDate, due_date: bill.dueDate, amount: parseFloat(bill.amount),
@@ -226,24 +224,28 @@ app.post("/api/submit", async (req, res) => {
   }
 });
 
+// ✅ FIXED: Finance Team query - processed_by_finance = false (not approved_by_unit = true)
 app.get("/api/orders", async (req, res) => {
   const { role, email } = req.session?.user || {};
-  const { view } = req.query;
   if (!supabase) return res.json({ orders: [] });
 
   let query = supabase.from("orders").select("*");
+  
   if (role === "Unit Team") {
+    // Unit Team sees only their own orders from last 5 days
     query = query.eq("email", email);
     const fiveDaysAgo = new Date();
     fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
     query = query.gte("created_at", fiveDaysAgo.toISOString());
   } else if (role === "Finance Team") {
-    query = query.eq("approved_by_unit", true).eq("processed_by_finance", false);
+    // ✅ FIXED: Finance Team sees ALL unprocessed orders
+    query = query.eq("processed_by_finance", false);
   } else if (role === "Master") {
-    if (view === "finance") query = query.eq("approved_by_unit", true).eq("processed_by_finance", false);
+    // Master sees everything - no filter
   }
 
-  const { data } = await query.order("created_at", { ascending: false });
+  const { data, error } = await query.order("created_at", { ascending: false });
+  if (error) console.error("Orders fetch error:", error);
   res.json({ orders: data || [] });
 });
 
@@ -251,66 +253,98 @@ app.post("/api/orders/approve", async (req, res) => {
   const { orderIds } = req.body;
   const sessionUser = req.session?.user;
   
-  if (!sessionUser) return res.status(401).json({ error: "Unauthorized: No session found" });
-  if (!supabase) return res.status(500).json({ error: "Server Configuration Error: Supabase not initialized" });
+  if (!sessionUser) return res.status(401).json({ error: "Unauthorized" });
+  if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
 
   try {
     const { data: orders } = await supabase.from("orders").select("*").in("id", orderIds);
-    await supabase.from("orders").update({ approved_by_unit: true }).in("id", orderIds);
+    await supabase.from("orders").update({ 
+      approved_by_unit: true,
+      approval_timestamp: new Date().toISOString(),
+      approval_by_name: `${sessionUser.firstName} ${sessionUser.lastName}`
+    }).in("id", orderIds);
 
     if (GOOGLE_SCRIPT_URL && orders) {
-      const userName = (sessionUser.firstName || "") + " " + (sessionUser.lastName || "");
+      const userName = `${sessionUser.firstName} ${sessionUser.lastName}`;
       const now = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
       for (const order of orders) {
         await fetch(GOOGLE_SCRIPT_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action: "update_approval", email: order.email, beneficiaryName: order.beneficiary_name, billDate: order.bill_date,
-            approval: { approval_timestamp: now, approval_by_name: userName.trim() || sessionUser.email, payment_mode: "" }
+            action: "update_approval",
+            email: order.email,
+            beneficiaryName: order.beneficiary_name,
+            billDate: order.bill_date,
+            approval: { approval_timestamp: now, approval_by_name: userName.trim(), payment_mode: "" }
           })
         });
       }
     }
     res.json({ success: true });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    console.error("Approve error:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post("/api/orders/set-payment-mode", async (req, res) => {
   const { orderIds, bank } = req.body;
   const sessionUser = req.session?.user;
   
-  if (!sessionUser) return res.status(401).json({ error: "Unauthorized: No session found" });
-  if (!supabase) return res.status(500).json({ error: "Server Configuration Error: Supabase not initialized" });
+  if (!sessionUser) return res.status(401).json({ error: "Unauthorized" });
+  if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
 
   try {
     const { data: orders } = await supabase.from("orders").select("*").in("id", orderIds);
-    await supabase.from("orders").update({ processed_by_finance: true, payment_method: bank }).in("id", orderIds);
+    await supabase.from("orders").update({ 
+      processed_by_finance: true, 
+      payment_method: bank 
+    }).in("id", orderIds);
 
     if (GOOGLE_SCRIPT_URL && orders) {
-      const userName = (sessionUser.firstName || "") + " " + (sessionUser.lastName || "");
+      const userName = `${sessionUser.firstName} ${sessionUser.lastName}`;
       const now = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+      
       await fetch(GOOGLE_SCRIPT_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "create_payment_sheet", paymentMode: bank, approval_by_name: userName.trim() || sessionUser.email,
-          orders: orders.map(o => ({ email: o.email, unit: o.unit, beneficiary_name: o.beneficiary_name, account_no: o.account_no, ifsc_code: o.ifsc_code, bill_date: o.bill_date, due_date: o.due_date, amount: o.amount }))
+          action: "create_payment_sheet",
+          paymentMode: bank,
+          approval_by_name: userName.trim(),
+          orders: orders.map(o => ({
+            email: o.email,
+            unit: o.unit,
+            beneficiary_name: o.beneficiary_name,
+            account_no: o.account_no,
+            ifsc_code: o.ifsc_code,
+            bill_date: o.bill_date,
+            due_date: o.due_date,
+            amount: o.amount
+          }))
         })
       });
+
       for (const order of orders) {
         await fetch(GOOGLE_SCRIPT_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action: "update_approval", email: order.email, beneficiaryName: order.beneficiary_name, billDate: order.bill_date,
-            approval: { approval_timestamp: now, approval_by_name: userName.trim() || sessionUser.email, payment_mode: bank }
+            action: "update_approval",
+            email: order.email,
+            beneficiaryName: order.beneficiary_name,
+            billDate: order.bill_date,
+            approval: { approval_timestamp: now, approval_by_name: userName.trim(), payment_mode: bank }
           })
         });
       }
     }
     res.json({ success: true });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+  } catch (err: any) {
+    console.error("Payment mode error:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get("/api/history", async (req, res) => {
@@ -327,7 +361,10 @@ app.get("/api/history", async (req, res) => {
       .map((row: any) => ({ timestamp: row[1], unit: row[3], beneficiary: row[4], account: row[5], amount: row[9] }))
       .reverse();
     res.json({ orders: userOrders });
-  } catch (error) { res.status(500).json({ error: "Failed to fetch history" }); }
+  } catch (error) {
+    console.error("History error:", error);
+    res.status(500).json({ error: "Failed to fetch history" });
+  }
 });
 
 export default app;
