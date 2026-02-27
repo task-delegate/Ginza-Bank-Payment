@@ -261,8 +261,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
   const [filterStatus, setFilterStatus] = useState("");
 
   const fetchOrders = async () => {
-    let url = "/api/orders";
-    const res = await fetch(url, { credentials: 'include' });
+    const res = await fetch("/api/orders", { credentials: 'include' });
     if (res.status === 401) {
       onLogout();
       return;
@@ -297,7 +296,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
         body: JSON.stringify({ orderIds: Array.from(selectedOrders) }),
         credentials: 'include'
       });
-      if (res.status === 401) {
+      if (res.status === 401 || res.status === 403) {
         onLogout();
         return;
       }
@@ -319,7 +318,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
         body: JSON.stringify({ orderIds: Array.from(selectedOrders), bank }),
         credentials: 'include'
       });
-      if (res.status === 401) {
+      if (res.status === 401 || res.status === 403) {
         onLogout();
         return;
       }
@@ -332,6 +331,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
     setProcessing(false);
   };
 
+  // ✅ FIXED FILTERING - Use created_at instead of timestamp
   const filteredOrders = orders.filter(o => {
     const matchesDate = filterDate ? new Date(o.created_at).toISOString().split('T')[0] === filterDate : true;
     const matchesUnit = filterUnit ? o.unit.toLowerCase().includes(filterUnit.toLowerCase()) : true;
@@ -378,7 +378,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
           )}
 
           {user.role === 'Finance Team' && (
-            <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Calendar className="w-4 h-4" />} label="Pending Processing" />
+            <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Calendar className="w-4 h-4" />} label="Pending Orders" />
           )}
 
           {user.role === 'Master' && (
@@ -398,40 +398,38 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
               <div className="p-6 border-b border-slate-100 space-y-4">
                 <div className="flex items-center justify-between flex-wrap gap-4">
                   <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">
-                    {user.role === 'Unit Team' ? "My Records" : user.role === 'Finance Team' ? "Pending Processing" : "All Records"}
+                    {user.role === 'Unit Team' ? "My Records (Last 5 Days)" : user.role === 'Finance Team' ? "Pending Orders" : "All Records"}
                   </h2>
                   
-                  {/* ✅ Show buttons only for Finance Team and Master */}
-                  <div className="flex gap-2 flex-wrap">
-                    {(user.role === 'Finance Team' || user.role === 'Master') && (
-                      <>
-                        <button 
-                          onClick={handleApprove}
-                          disabled={selectedOrders.size === 0 || processing}
-                          className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-emerald-600 disabled:opacity-50 transition-all"
-                        >
-                          {processing ? "Processing..." : `✓ Approve Selected (${selectedOrders.size})`}
-                        </button>
-                        <button 
-                          onClick={() => handleSetPaymentMode('UBI')} 
-                          disabled={selectedOrders.size === 0 || processing} 
-                          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700 disabled:opacity-50 transition-all"
-                        >
-                          💳 UBI Payment
-                        </button>
-                        <button 
-                          onClick={() => handleSetPaymentMode('SBI')} 
-                          disabled={selectedOrders.size === 0 || processing} 
-                          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700 disabled:opacity-50 transition-all"
-                        >
-                          💳 SBI Payment
-                        </button>
-                      </>
-                    )}
-                  </div>
+                  {/* ✅ Only Finance Team & Master see buttons */}
+                  {(user.role === 'Finance Team' || user.role === 'Master') && (
+                    <div className="flex gap-2 flex-wrap">
+                      <button 
+                        onClick={handleApprove}
+                        disabled={selectedOrders.size === 0 || processing}
+                        className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-emerald-600 disabled:opacity-50 transition-all"
+                      >
+                        {processing ? "Processing..." : `✓ Approve (${selectedOrders.size})`}
+                      </button>
+                      <button 
+                        onClick={() => handleSetPaymentMode('UBI')} 
+                        disabled={selectedOrders.size === 0 || processing} 
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700 disabled:opacity-50 transition-all"
+                      >
+                        💳 UBI
+                      </button>
+                      <button 
+                        onClick={() => handleSetPaymentMode('SBI')} 
+                        disabled={selectedOrders.size === 0 || processing} 
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700 disabled:opacity-50 transition-all"
+                      >
+                        💳 SBI
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                {/* Filters Row */}
+                {/* Filters */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
                   <div className="space-y-1">
                     <label className="text-[8px] font-black text-slate-400 uppercase">Filter Date</label>
@@ -448,7 +446,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                   <div className="space-y-1">
                     <label className="text-[8px] font-black text-slate-400 uppercase">Filter Status</label>
                     <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-[10px] font-bold outline-none focus:border-[#673ab7]">
-                      <option value="">All Status</option>
+                      <option value="">All</option>
                       <option value="Pending">Pending</option>
                       <option value="Approved">Approved</option>
                       <option value="Paid">Paid</option>
@@ -461,7 +459,6 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50">
-                      {/* ✅ Show checkbox only for Finance Team and Master */}
                       {(user.role === 'Finance Team' || user.role === 'Master') && (
                         <th className="p-4 border-b border-slate-100 w-10">
                           <Square className="w-4 h-4 text-slate-300" />
@@ -475,17 +472,15 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Account</th>
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Amount</th>
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Status</th>
-                      <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Payment Mode</th>
-                      <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Approved By</th>
+                      <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Payment</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredOrders.length === 0 ? (
-                      <tr><td colSpan={user.role === 'Unit Team' ? 10 : 11} className="p-12 text-center text-slate-400 font-bold uppercase text-xs">No records found</td></tr>
+                      <tr><td colSpan={user.role === 'Unit Team' ? 9 : 10} className="p-12 text-center text-slate-400 font-bold uppercase text-xs">No records found</td></tr>
                     ) : (
                       filteredOrders.map((o) => (
-                        <tr key={o.id} className={`transition-colors group ${o.processed_by_finance ? "bg-emerald-100/60" : o.approved_by_unit ? "bg-blue-50/60" : "hover:bg-slate-50"}`}>
-                          {/* ✅ Show checkbox only for Finance Team and Master */}
+                        <tr key={o.id} className={`transition-colors ${o.processed_by_finance ? "bg-emerald-100/60" : o.approved_by_unit ? "bg-blue-50/60" : "hover:bg-slate-50"}`}>
                           {(user.role === 'Finance Team' || user.role === 'Master') && (
                             <td className="p-4 border-b border-slate-50">
                               {!o.processed_by_finance ? (
@@ -518,7 +513,6 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                             </span>
                           </td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-black text-slate-900 uppercase">{o.payment_method || "-"}</td>
-                          <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{o.approval_by_name || "-"}</td>
                         </tr>
                       ))
                     )}
@@ -700,4 +694,47 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
       <div className="bg-white rounded-xl shadow-md p-6 space-y-6">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-black text-slate-900 uppercase">Bill Details</h3>
-          <button type="button" onClick={() => append({ billDate: "", dueDate: "",
+          <button type="button" onClick={() => append({ billDate: "", dueDate: "", amount: "" as any })} className="text-[10px] font-black text-[#673ab7] uppercase tracking-widest hover:bg-indigo-50 px-2 py-1 rounded transition-all">+ ADD BILL</button>
+        </div>
+        
+        <div className="space-y-4">
+          {fields.map((f, i) => (
+            <div key={f.id} className="p-4 bg-slate-50 rounded-lg border border-slate-100 relative group space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-500">Bill Date</label>
+                  <input type="date" {...register(`bills.${i}.billDate`)} className="w-full bg-transparent border-b border-slate-200 py-1 text-xs font-black outline-none focus:border-[#673ab7]" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-500">Due Date</label>
+                  <input type="date" {...register(`bills.${i}.dueDate`)} className="w-full bg-transparent border-b border-slate-200 py-1 text-xs font-black outline-none focus:border-[#673ab7]" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-500">Amount</label>
+                  <div className="relative">
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-black">₹</span>
+                    <input type="number" step="0.01" {...register(`bills.${i}.amount`, { valueAsNumber: true })} className="w-full bg-transparent border-b border-slate-200 py-1 pl-3 text-xs font-black outline-none focus:border-[#673ab7]" />
+                  </div>
+                </div>
+              </div>
+              {fields.length > 1 && (
+                <button type="button" onClick={() => remove(i)} className="absolute -right-2 -top-2 bg-white p-1.5 rounded-full shadow-md text-slate-300 hover:text-red-500 transition-all border border-slate-200">
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl text-[10px] font-black uppercase text-center border border-red-100">{error}</div>}
+
+      <div className="flex items-center justify-between pt-4">
+        <button type="button" onClick={() => { reset(); setError(null); }} className="text-xs font-black text-slate-500 hover:text-slate-700 px-4 py-2 uppercase tracking-widest transition-all">Clear Form</button>
+        <button disabled={submitting} className="bg-[#673ab7] text-white px-10 py-3 rounded-lg font-black text-sm shadow-lg hover:bg-[#5e35b1] transition-all flex items-center gap-2 uppercase tracking-widest">
+          {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-4 h-4" /> Submit</>}
+        </button>
+      </div>
+    </form>
+  );
+}
