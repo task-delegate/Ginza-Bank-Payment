@@ -336,7 +336,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
     const matchesDate = filterDate ? new Date(o.created_at).toISOString().split('T')[0] === filterDate : true;
     const matchesUnit = filterUnit ? o.unit.toLowerCase().includes(filterUnit.toLowerCase()) : true;
     const matchesBeneficiary = filterBeneficiary ? o.beneficiary_name.toLowerCase().includes(filterBeneficiary.toLowerCase()) : true;
-    const status = o.processed_by_finance ? "Paid" : o.approved_by_unit ? "Approved" : "Pending";
+    const status = o.processed_by_finance ? "Approved" : o.approved_by_unit ? "Approved" : "Pending";
     const matchesStatus = filterStatus ? status === filterStatus : true;
     return matchesDate && matchesUnit && matchesBeneficiary && matchesStatus;
   });
@@ -449,7 +449,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                       <option value="">All</option>
                       <option value="Pending">Pending</option>
                       <option value="Approved">Approved</option>
-                      <option value="Paid">Paid</option>
+                      
                     </select>
                   </div>
                 </div>
@@ -509,7 +509,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                                   ? "bg-blue-100 text-blue-700"
                                   : "bg-amber-100 text-amber-700"
                             }`}>
-                              {o.processed_by_finance ? "Paid" : o.approved_by_unit ? "Approved" : "Pending"}
+                              {o.processed_by_finance ? "Approved" : o.approved_by_unit ? "Approved" : "Pending"}
                             </span>
                           </td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-black text-slate-900 uppercase">{o.payment_method || "-"}</td>
