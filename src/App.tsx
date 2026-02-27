@@ -293,7 +293,9 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
       const res = await fetch("/api/orders/approve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderIds: Array.from(selectedOrders) }),
+        body: JSON.stringify({ orderIds: Array.from(selectedOrders),
+        payment_method: null
+      }),        
         credentials: 'include'
       });
       if (res.status === 401 || res.status === 403) {
@@ -301,42 +303,61 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
         return;
       }
       if (res.ok) {
-        setSelectedOrders(new Set());
-        fetchOrders();
-      }
-    } catch (e) {}
-    setProcessing(false);
-  };
+      setOrders(prev =>
+        prev.map(o =>
+          selectedOrders.has(o.id)
+            ? { ...o, processed_by_finance: true, payment_method: null }
+            : o
+        )
+      );
+      setSelectedOrders(new Set());
+    }
+  } catch {}
 
-  const handleSetPaymentMode = async (bank: 'UBI' | 'SBI') => {
-    if (selectedOrders.size === 0) return;
-    setProcessing(true);
-    try {
-      const res = await fetch("/api/orders/set-payment-mode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderIds: Array.from(selectedOrders), bank }),
-        credentials: 'include'
-      });
-      if (res.status === 401 || res.status === 403) {
-        onLogout();
-        return;
-      }
-      const data = await res.json();
-      if (data.success) {
-        setSelectedOrders(new Set());
-        fetchOrders();
-      }
-    } catch (e) {}
-    setProcessing(false);
-  };
+  setProcessing(false);
+};
+
+const handleSetPaymentMode = async (bank: 'UBI' | 'SBI') => {
+  if (selectedOrders.size === 0) return;
+  setProcessing(true);
+  try {
+    const res = await fetch("/api/orders/set-payment-mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        orderIds: Array.from(selectedOrders),
+        bank,
+        markApproved: true
+      }),
+      credentials: 'include'
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      onLogout();
+      return;
+    }
+
+    if (res.ok) {
+      setOrders(prev =>
+        prev.map(o =>
+          selectedOrders.has(o.id)
+            ? { ...o, processed_by_finance: true, payment_method: bank }
+            : o
+        )
+      );
+      setSelectedOrders(new Set());
+    }
+  } catch {}
+
+  setProcessing(false);
+};
 
   // ✅ FIXED FILTERING - Use created_at instead of timestamp
   const filteredOrders = orders.filter(o => {
     const matchesDate = filterDate ? new Date(o.created_at).toISOString().split('T')[0] === filterDate : true;
     const matchesUnit = filterUnit ? o.unit.toLowerCase().includes(filterUnit.toLowerCase()) : true;
     const matchesBeneficiary = filterBeneficiary ? o.beneficiary_name.toLowerCase().includes(filterBeneficiary.toLowerCase()) : true;
-    const status = o.processed_by_finance ? "Approved" : o.approved_by_unit ? "Approved" : "Pending";
+    const status = o.processed_by_finance ? "Approved" : "Pending";
     const matchesStatus = filterStatus ? status === filterStatus : true;
     return matchesDate && matchesUnit && matchesBeneficiary && matchesStatus;
   });
@@ -480,7 +501,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                       <tr><td colSpan={user.role === 'Unit Team' ? 9 : 10} className="p-12 text-center text-slate-400 font-bold uppercase text-xs">No records found</td></tr>
                     ) : (
                       filteredOrders.map((o) => (
-                        <tr key={o.id} className={`transition-colors ${o.processed_by_finance ? "bg-emerald-100/60" : o.approved_by_unit ? "bg-blue-50/60" : "hover:bg-slate-50"}`}>
+                        <tr key={o.id} className={`transition-colors ${o.processed_by_finance ? "bg-emerald-100/60" : "hover:bg-slate-50"}`}>
                           {(user.role === 'Finance Team' || user.role === 'Master') && (
                             <td className="p-4 border-b border-slate-50">
                               {!o.processed_by_finance ? (
@@ -509,10 +530,10 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                                   ? "bg-blue-100 text-blue-700"
                                   : "bg-amber-100 text-amber-700"
                             }`}>
-                              {o.processed_by_finance ? "Approved" : o.approved_by_unit ? "Approved" : "Pending"}
+                              {o.processed_by_finance ? "Approved" : "Pending"}
                             </span>
                           </td>
-                          <td className="p-4 border-b border-slate-50 text-[10px] font-black text-slate-900 uppercase">{o.payment_method || "-"}</td>
+                          <td className="p-4 border-b border-slate-50 text-[10px] font-black text-slate-900 uppercase">{o.payment_method ? o.payment_method : "-"}</td>
                         </tr>
                       ))
                     )}
