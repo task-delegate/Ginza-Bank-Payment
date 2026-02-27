@@ -20,7 +20,7 @@ const supabaseUrlRaw = process.env.SUPABASE_URL || "vgvnahcunvwigwaniejg";
 const supabaseUrl = supabaseUrlRaw.includes("://") 
   ? supabaseUrlRaw 
   : `https://${supabaseUrlRaw}.supabase.co`;
-const supabaseKey = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZndm5haGN1bnZ3aWd3YW5pZWpnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5MDQ2MDgsImV4c[...]";
+const supabaseKey = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...";
 
 const supabase = supabaseUrl && supabaseKey 
   ? createClient(supabaseUrl, supabaseKey)
@@ -29,11 +29,6 @@ const supabase = supabaseUrl && supabaseKey
 console.log(`Supabase URL: ${supabaseUrl}`);
 console.log(`Supabase Key: ${supabaseKey ? supabaseKey.substring(0, 10) + "..." : "MISSING"}`);
 
-if (!supabase) {
-  console.warn("Supabase client failed to initialize. Check your credentials.");
-}
-
-// Google Sheets configuration (Using Apps Script Web App)
 const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL || "https://script.google.com/macros/s/AKfycbyKJhtxHZuaNb-5QEX2EmW5uzegW71gHB5FmAd_u7nCQVNxuUpJWlHxoZ6yg6wc3pE8/exec";
 
 const ALL_UNITS = [
@@ -43,7 +38,6 @@ const ALL_UNITS = [
 
 app.use(express.json());
 
-// Fetch customers from "Master Sheet" via Apps Script
 app.get("/api/customers", async (req, res) => {
   if (!GOOGLE_SCRIPT_URL) return res.json([]);
   try {
@@ -69,7 +63,7 @@ app.use(
   cookieSession({
     name: "session",
     keys: ["ginza-secret-key-v2"],
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    maxAge: 24 * 60 * 60 * 1000,
     secure: true,
     sameSite: "none",
     httpOnly: true,
@@ -148,7 +142,7 @@ app.get("/api/units", (req, res) => {
   res.json({ units: ALL_UNITS });
 });
 
-// ✅ FIXED Beneficiary Search Route
+// ✅ Beneficiary Search
 app.get("/api/beneficiaries/search", async (req, res) => {
   const name = req.query.name as string;
   if (!name || name.length < 2) {
@@ -157,7 +151,6 @@ app.get("/api/beneficiaries/search", async (req, res) => {
 
   let results: any[] = [];
 
-  // 1. Try Supabase first
   try {
     if (supabase) {
       const { data, error } = await supabase
@@ -173,15 +166,13 @@ app.get("/api/beneficiaries/search", async (req, res) => {
           ifsc_code: b.ifsc_code,
           source: "supabase"
         }));
-      } else {
-        console.log("No results from Supabase or error:", error);
       }
     }
   } catch (sbErr) {
     console.error("Supabase search error:", sbErr);
   }
 
-  // 2. If few results, try Google Sheets
+  // Fallback to Google Sheets
   if (results.length < 5 && GOOGLE_SCRIPT_URL) {
     try {
       const response = await fetch(GOOGLE_SCRIPT_URL + "?action=read_sheet&sheetName=Master Sheet");
@@ -203,7 +194,6 @@ app.get("/api/beneficiaries/search", async (req, res) => {
             source: "sheets"
           }));
 
-        // Merge and remove duplicates
         const existingNames = new Set(results.map(r => r.name.toLowerCase()));
         sheetResults.forEach((sr: any) => {
           if (!existingNames.has(sr.name.toLowerCase())) {
@@ -219,7 +209,7 @@ app.get("/api/beneficiaries/search", async (req, res) => {
   res.json({ beneficiaries: results.slice(0, 10) });
 });
 
-// Form Submission Route
+// Form Submission
 app.post("/api/submit", async (req, res) => {
   const { email, unit, beneficiaryName, accountNo, ifscCode, bills } = req.body;
 
@@ -228,17 +218,12 @@ app.post("/api/submit", async (req, res) => {
   }
 
   try {
-    // 1. Save to Supabase
     if (supabase) {
-      // Save beneficiary (allow duplicates - no unique constraint)
-      const { error: bError } = await supabase
+      // Save beneficiary
+      await supabase
         .from("beneficiary_details")
-        .insert({ name: beneficiaryName, account_no: accountNo, ifsc_code: ifscCode });
-      
-      if (bError) {
-        console.error("Supabase Beneficiary Error:", bError);
-        // Continue anyway - beneficiary save is not critical
-      }
+        .insert({ name: beneficiaryName, account_no: accountNo, ifsc_code: ifscCode })
+        .catch(() => {}); // Ignore duplicates
 
       // Save orders
       const supabaseOrders = bills.map((bill: any) => ({
@@ -255,34 +240,20 @@ app.post("/api/submit", async (req, res) => {
       }));
       
       const { error: oError } = await supabase.from("orders").insert(supabaseOrders);
-      if (oError) {
-        console.error("Supabase Orders Insert Error:", oError);
-        throw new Error(`Order save failed: ${oError.message}`);
-      }
+      if (oError) throw oError;
     }
 
-    // 2. Save to Google Sheet via Apps Script
+    // Save to Google Sheets
     if (GOOGLE_SCRIPT_URL) {
       try {
-        const response = await fetch(GOOGLE_SCRIPT_URL, {
+        await fetch(GOOGLE_SCRIPT_URL, {
           method: "POST",
           body: JSON.stringify({ 
             action: "submit_order",
-            email, 
-            unit, 
-            beneficiaryName, 
-            accountNo, 
-            ifscCode, 
-            bills 
+            email, unit, beneficiaryName, accountNo, ifscCode, bills 
           }),
           headers: { "Content-Type": "application/json" }
         });
-        const result = await response.json();
-        if (result.success) {
-          console.log("Successfully saved to Google Sheets via Script URL");
-        } else {
-          console.error("Google Script Error:", result.error);
-        }
       } catch (scriptError) {
         console.error("Google Script Fetch Error:", scriptError);
       }
@@ -295,7 +266,7 @@ app.post("/api/submit", async (req, res) => {
   }
 });
 
-// ✅ FIXED GET /api/orders - OPTION A WORKFLOW
+// ✅ GET ORDERS - CRITICAL QUERY
 app.get("/api/orders", async (req, res) => {
   const { role, email } = req.session?.user || {};
   if (!supabase) return res.json({ orders: [] });
@@ -303,19 +274,19 @@ app.get("/api/orders", async (req, res) => {
   let query = supabase.from("orders").select("*");
 
   if (role === "Unit Team") {
-    // Unit Team sees only their own entries from last 5 days
+    // Unit Team: See ONLY their own orders from last 5 days
     query = query.eq("email", email);
     const fiveDaysAgo = new Date();
     fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
     query = query.gte("created_at", fiveDaysAgo.toISOString());
     
   } else if (role === "Finance Team") {
-    // ✅ OPTION A: Finance Team sees ALL unprocessed records (unit-wise)
-    // They can approve, select payment, and mark as paid
+    // ✅ Finance Team: See ALL PENDING orders (not yet processed)
+    // Can approve and set payment mode
     query = query.eq("processed_by_finance", false);
     
   } else if (role === "Master") {
-    // ✅ Master sees EVERYTHING - no filter
+    // Master: See EVERYTHING (no filter)
   }
 
   const { data, error } = await query.order("created_at", { ascending: false });
@@ -328,7 +299,7 @@ app.get("/api/orders", async (req, res) => {
   res.json({ orders: data || [] });
 });
 
-// ✅ Approve Orders Endpoint
+// ✅ APPROVE - Only Finance Team can do this
 app.post("/api/orders/approve", async (req, res) => {
   const { orderIds } = req.body;
   const sessionUser = req.session?.user;
@@ -337,10 +308,14 @@ app.post("/api/orders/approve", async (req, res) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
+  // ✅ Only Finance Team and Master can approve
+  if (sessionUser.role !== "Finance Team" && sessionUser.role !== "Master") {
+    return res.status(403).json({ error: "Only Finance Team/Master can approve" });
+  }
+
   if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
 
   try {
-    // 1. Get orders from Supabase
     const { data: orders, error: fetchError } = await supabase
       .from("orders")
       .select("*")
@@ -348,7 +323,7 @@ app.post("/api/orders/approve", async (req, res) => {
     
     if (fetchError || !orders) throw new Error("Orders not found");
 
-    // 2. Update Supabase
+    // Update Supabase
     const { error: updateError } = await supabase
       .from("orders")
       .update({ 
@@ -360,9 +335,9 @@ app.post("/api/orders/approve", async (req, res) => {
 
     if (updateError) throw updateError;
 
-    // 3. Update Google Sheets via Apps Script
+    // Update Google Sheets
     if (GOOGLE_SCRIPT_URL && orders) {
-      const userName = (sessionUser.firstName || "") + " " + (sessionUser.lastName || "");
+      const userName = `${sessionUser.firstName} ${sessionUser.lastName}`;
       const now = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
       for (const order of orders) {
@@ -376,7 +351,7 @@ app.post("/api/orders/approve", async (req, res) => {
             billDate: order.bill_date,
             approval: {
               approval_timestamp: now,
-              approval_by_name: userName.trim() || sessionUser.email,
+              approval_by_name: userName.trim(),
               payment_mode: ""
             }
           })
@@ -391,7 +366,7 @@ app.post("/api/orders/approve", async (req, res) => {
   }
 });
 
-// ✅ Set Payment Mode Endpoint
+// ✅ SET PAYMENT MODE - Only Finance Team can do this
 app.post("/api/orders/set-payment-mode", async (req, res) => {
   const { orderIds, bank } = req.body;
   const sessionUser = req.session?.user;
@@ -400,10 +375,14 @@ app.post("/api/orders/set-payment-mode", async (req, res) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
+  // ✅ Only Finance Team and Master can set payment mode
+  if (sessionUser.role !== "Finance Team" && sessionUser.role !== "Master") {
+    return res.status(403).json({ error: "Only Finance Team/Master can set payment mode" });
+  }
+
   if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
 
   try {
-    // 1. Get orders
     const { data: orders, error: fetchError } = await supabase
       .from("orders")
       .select("*")
@@ -411,7 +390,7 @@ app.post("/api/orders/set-payment-mode", async (req, res) => {
     
     if (fetchError || !orders) throw new Error("Orders not found");
 
-    // 2. Update Supabase
+    // Update Supabase
     const { error: updateError } = await supabase
       .from("orders")
       .update({ 
@@ -422,9 +401,9 @@ app.post("/api/orders/set-payment-mode", async (req, res) => {
 
     if (updateError) throw updateError;
 
-    // 3. Update Google Sheets via Apps Script
+    // Update Google Sheets
     if (GOOGLE_SCRIPT_URL && orders) {
-      const userName = (sessionUser.firstName || "") + " " + (sessionUser.lastName || "");
+      const userName = `${sessionUser.firstName} ${sessionUser.lastName}`;
       const now = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
 
       // Create payment sheet
@@ -434,7 +413,7 @@ app.post("/api/orders/set-payment-mode", async (req, res) => {
         body: JSON.stringify({
           action: "create_payment_sheet",
           paymentMode: bank,
-          approval_by_name: userName.trim() || sessionUser.email,
+          approval_by_name: userName.trim(),
           orders: orders.map(o => ({
             email: o.email,
             unit: o.unit,
@@ -448,7 +427,7 @@ app.post("/api/orders/set-payment-mode", async (req, res) => {
         })
       });
 
-      // Update approval status with payment mode
+      // Update approval status
       for (const order of orders) {
         await fetch(GOOGLE_SCRIPT_URL, {
           method: "POST",
@@ -460,7 +439,7 @@ app.post("/api/orders/set-payment-mode", async (req, res) => {
             billDate: order.bill_date,
             approval: {
               approval_timestamp: now,
-              approval_by_name: userName.trim() || sessionUser.email,
+              approval_by_name: userName.trim(),
               payment_mode: bank
             }
           })
@@ -491,8 +470,6 @@ app.get("/api/history", async (req, res) => {
     if (rows.length <= 1) return res.json({ orders: [] });
 
     const dataRows = rows.slice(1);
-
-    // Filter by email and last 5 days
     const fiveDaysAgo = new Date();
     fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
 
@@ -518,7 +495,7 @@ app.get("/api/history", async (req, res) => {
   }
 });
 
-// Vite middleware for development
+// Vite middleware
 if (process.env.NODE_ENV !== "production") {
   const vite = await createViteServer({
     server: { middlewareMode: true },
@@ -526,17 +503,14 @@ if (process.env.NODE_ENV !== "production") {
   });
   app.use(vite.middlewares);
 } else {
-  // Serve static files from dist
   app.use(express.static(path.join(__dirname, "dist")));
   app.get("*", (req, res) => {
     res.sendFile(path.join(__dirname, "dist", "index.html"));
   });
 }
 
-// Export for Vercel
 export default app;
 
-// Only listen if not on Vercel
 if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
