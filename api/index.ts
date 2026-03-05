@@ -105,7 +105,8 @@ app.get("/api/beneficiaries/search", async (req, res) => {
       const { data, error: sbError } = await supabase
         .from("beneficiary_details")
         .select("*")
-        .ilike("name", `%${name}%`)
+        .ilike("name", `${name}%`)
+        .order("name")
         .limit(10);
       
       if (!sbError && data) {
@@ -159,15 +160,24 @@ app.post("/api/submit", async (req, res) => {
         bill_date: bill.billDate, due_date: bill.dueDate, amount: parseFloat(bill.amount),
         approved_by_unit: false, processed_by_finance: false
       }));
-      await supabase.from("orders").insert(supabaseOrders);
-    }
+      const { data: insertedOrders } = await supabase.from("orders").insert(supabaseOrders).select();
 
-    if (GOOGLE_SCRIPT_URL) {
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: "POST",
-        body: JSON.stringify({ action: "submit_order", email, unit, beneficiaryName, accountNo, ifscCode, bills }),
-        headers: { "Content-Type": "application/json" }
-      });
+      if (GOOGLE_SCRIPT_URL && insertedOrders) {
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: "POST",
+          body: JSON.stringify({ 
+            action: "submit_order", 
+            email, unit, beneficiaryName, accountNo, ifscCode, 
+            bills: insertedOrders.map(o => ({
+              id: o.id,
+              billDate: o.bill_date,
+              dueDate: o.due_date,
+              amount: o.amount
+            }))
+          }),
+          headers: { "Content-Type": "application/json" }
+        });
+      }
     }
     res.json({ success: true });
   } catch (error: any) {
@@ -204,7 +214,8 @@ app.post("/api/orders/approve", async (req: any, res) => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action: "update_approval", email: order.email, beneficiaryName: order.beneficiary_name, billDate: order.bill_date,
+            action: "update_approval", orderId: order.id, email: order.email, unit: order.unit, beneficiaryName: order.beneficiary_name, billDate: order.bill_date,
+            dueDate: order.due_date, amount: order.amount,
             approval: { approval_timestamp: now, approval_by_name: userName.trim() || req.user.email, payment_mode: "" }
           })
         }).catch(e => console.error(e));
@@ -231,7 +242,15 @@ app.post("/api/orders/set-payment-mode", async (req: any, res) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "create_payment_sheet", paymentMode: bank, approval_by_name: userName.trim() || req.user.email,
-          orders: orders.map(o => ({ email: o.email, unit: o.unit, beneficiary_name: o.beneficiary_name, amount: o.amount }))
+          orders: orders.map(o => ({ 
+            id: o.id,
+            email: o.email, 
+            unit: o.unit, 
+            beneficiary_name: o.beneficiary_name, 
+            amount: o.amount,
+            account_no: o.account_no,
+            ifsc_code: o.ifsc_code
+          }))
         })
       }).catch(e => console.error(e));
 
@@ -241,7 +260,8 @@ app.post("/api/orders/set-payment-mode", async (req: any, res) => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action: "update_approval", email: order.email, beneficiaryName: order.beneficiary_name, billDate: order.bill_date,
+            action: "update_approval", orderId: order.id, email: order.email, unit: order.unit, beneficiaryName: order.beneficiary_name, billDate: order.bill_date,
+            dueDate: order.due_date, amount: order.amount,
             approval: { 
               approval_timestamp: now, 
               approval_by_name: userName.trim() || req.user.email, 
