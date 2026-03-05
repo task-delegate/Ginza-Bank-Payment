@@ -177,7 +177,7 @@ function AuthForm({ onLogin }: { onLogin: (u: UserData) => void }) {
               {isLogin ? "Sign In" : "Create Account"}
             </h2>
             <p className="text-sm text-slate-500 font-medium">
-              {isLogin ? "Access the Ginza Advanced Order Entry Portal" : "Register for a new account"}
+              {isLogin ? "Access the Ginza Bank Transaction Portal" : "Register for a new account"}
             </p>
           </div>
         </div>
