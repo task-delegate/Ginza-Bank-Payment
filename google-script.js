@@ -89,7 +89,7 @@ function handleOrderSubmission(data) {
     if (data.bills && Array.isArray(data.bills) && data.bills.length > 0) {
       data.bills.forEach(function(bill) {
         rows.push([
-          generateID(),                           // ID
+          bill.id || generateID(),                // ID (Use ID from server if available)
           timestamp,                              // Timestamp
           data.email,                             // Email
           data.unit,                              // Unit
@@ -173,9 +173,15 @@ function handleApprovalUpdate(data) {
 
     // Search through all rows
     for (var i = 1; i < values.length; i++) {
-      // Match by: Email + Beneficiary Name + Bill Date (formatted for comparison)
+      // 1. Primary Match: ID (Column A - Index 0)
+      var sheetId = (values[i][0] || "").toString().trim();
+      var targetId = (data.orderId || "").toString().trim();
+      var idMatch = targetId !== "" && sheetId === targetId;
+      
+      // 2. Secondary Match (Fallback): Email + Beneficiary + Amount + Bill Date
       var emailMatch = values[i][2] == data.email;
       var beneficiaryMatch = values[i][4] == data.beneficiaryName;
+      var amountMatch = Math.abs(parseFloat(values[i][9] || 0) - parseFloat(data.amount || 0)) < 0.01;
       
       // Handle Date comparison robustly
       var rowDateVal = values[i][7];
@@ -186,10 +192,11 @@ function handleApprovalUpdate(data) {
         rowDateStr = rowDateVal.toString();
       }
       
-      var targetDateStr = data.billDate; // Assuming "yyyy-MM-dd" from server
+      var targetDateStr = data.billDate; 
       var dateMatch = (rowDateStr === targetDateStr);
 
-      if (emailMatch && beneficiaryMatch && dateMatch) {
+      // If ID matches OR (all secondary fields match and we don't have an ID)
+      if (idMatch || (emailMatch && beneficiaryMatch && amountMatch && dateMatch)) {
         // Update Status (Column 11 - K)
         sheet.getRange(i + 1, 11).setValue("Approved");
         
@@ -209,7 +216,11 @@ function handleApprovalUpdate(data) {
 
         Logger.log("✅ Row " + (i+1) + " updated successfully");
         found = true;
-        updatedCount++;
+        updatedCount = 1;
+        
+        // IMPORTANT: Stop searching after finding the FIRST match.
+        // This prevents updating multiple rows for the same customer.
+        break; 
       }
     }
     
@@ -253,9 +264,11 @@ function handlePaymentSheet(data) {
     var sheetName = "Payment_" + data.paymentMode + "_" + getFormattedDate();
     var newSheet = getOrCreateSheet(sheetName, [
       "Date",
+      "Order ID",
       "Payment Mode",
       "Beneficiary Name",
       "Account No",
+      "IFSC Code",
       "Amount",
       "Approved By"
     ]);
@@ -266,9 +279,11 @@ function handlePaymentSheet(data) {
       data.orders.forEach(function(order) {
         rows.push([
           getFormattedDate(),
+          order.id || "",
           data.paymentMode,
           order.beneficiary_name || order.beneficiaryName || "",
           order.account_no || order.accountNo || "",
+          order.ifsc_code || order.ifscCode || "",
           order.amount || 0,
           data.approval_by_name || ""
         ]);

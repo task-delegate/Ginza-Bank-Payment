@@ -63,11 +63,28 @@ export default function App() {
 
   useEffect(() => {
     const checkAuth = async () => {
+      const token = localStorage.getItem("ginza_token");
       try {
-        const res = await fetch("/api/auth/me", { credentials: 'include' });
-        const data = await res.json();
-        if (data.user) setUser(data.user);
-      } catch (e) {}
+        const fetchOptions: any = { credentials: 'include' };
+        if (token) {
+          fetchOptions.headers = { 'Authorization': `Bearer ${token}` };
+        }
+        
+        const res = await fetch("/api/auth/me", fetchOptions);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.user) setUser(data.user);
+          else {
+            setUser(null);
+            localStorage.removeItem("ginza_token");
+          }
+        } else {
+          setUser(null);
+          localStorage.removeItem("ginza_token");
+        }
+      } catch (e) {
+        setUser(null);
+      }
       setLoading(false);
     };
     checkAuth();
@@ -96,7 +113,12 @@ function AuthForm({ onLogin }: { onLogin: (u: UserData) => void }) {
   const [units, setUnits] = useState<string[]>([]);
 
   useEffect(() => {
-    fetch("/api/units", { credentials: 'include' })
+    const token = localStorage.getItem("ginza_token");
+    const fetchOptions: any = { credentials: 'include' };
+    if (token) {
+      fetchOptions.headers = { 'Authorization': `Bearer ${token}` };
+    }
+    fetch("/api/units", fetchOptions)
       .then(r => r.json())
       .then(d => {
         if (Array.isArray(d)) setUnits(d);
@@ -120,6 +142,9 @@ function AuthForm({ onLogin }: { onLogin: (u: UserData) => void }) {
       });
       const result = await res.json();
       if (res.ok) {
+        if (result.token) {
+          localStorage.setItem("ginza_token", result.token);
+        }
         if (isLogin) onLogin(result.user);
         else setIsLogin(true);
       } else {
@@ -240,6 +265,21 @@ function AuthForm({ onLogin }: { onLogin: (u: UserData) => void }) {
               >
                 {isLogin ? "Create new Mail id - for Register" : "Already have an account? Sign In"}
               </button>
+              
+              <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-100">
+                <p className="text-[10px] text-slate-500 text-center leading-relaxed">
+                  If you experience automatic logouts, please open the app directly in a new tab:
+                  <br />
+                  <a 
+                    href="https://ginza-bank-payment.vercel.app/" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-[#673ab7] font-bold hover:underline break-all"
+                  >
+                    https://ginza-bank-payment.vercel.app/
+                  </a>
+                </p>
+              </div>
             </div>
           </form>
         </div>
@@ -256,18 +296,38 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
   
   // Filters
   const [filterDate, setFilterDate] = useState("");
+  const [filterEndDate, setFilterEndDate] = useState("");
+  const [filterMonth, setFilterMonth] = useState("");
+  const [filterYear, setFilterYear] = useState("");
   const [filterUnit, setFilterUnit] = useState("");
   const [filterBeneficiary, setFilterBeneficiary] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
 
   const fetchOrders = async () => {
-    const res = await fetch("/api/orders", { credentials: 'include' });
-    if (res.status === 401) {
-      onLogout();
-      return;
+    try {
+      let url = "/api/orders";
+      if (user.role === 'Master') {
+        url += `?view=${activeTab === 'finance' ? 'finance' : 'unit'}`;
+      }
+      
+      const token = localStorage.getItem("ginza_token");
+      const fetchOptions: any = { credentials: 'include' };
+      if (token) {
+        fetchOptions.headers = { 'Authorization': `Bearer ${token}` };
+      }
+
+      const res = await fetch(url, fetchOptions);
+      if (res.status === 401) {
+        // For background fetches, just logout quietly
+        onLogout();
+        localStorage.removeItem("ginza_token");
+        return;
+      }
+      const data = await res.json();
+      setOrders(data.orders || []);
+    } catch (e) {
+      console.error("Fetch orders error:", e);
     }
-    const data = await res.json();
-    setOrders(data.orders);
   };
 
   useEffect(() => {
@@ -275,7 +335,13 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
   }, [activeTab]);
 
   const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST", credentials: 'include' });
+    const token = localStorage.getItem("ginza_token");
+    const fetchOptions: any = { method: "POST", credentials: 'include' };
+    if (token) {
+      fetchOptions.headers = { 'Authorization': `Bearer ${token}` };
+    }
+    await fetch("/api/auth/logout", fetchOptions);
+    localStorage.removeItem("ginza_token");
     onLogout();
   };
 
@@ -290,74 +356,98 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
     if (selectedOrders.size === 0) return;
     setProcessing(true);
     try {
-      const res = await fetch("/api/orders/approve", {
+      const token = localStorage.getItem("ginza_token");
+      const fetchOptions: any = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderIds: Array.from(selectedOrders),
-        payment_method: null
-      }),        
+        body: JSON.stringify({ orderIds: Array.from(selectedOrders) }),
         credentials: 'include'
-      });
-      if (res.status === 401 || res.status === 403) {
+      };
+      if (token) {
+        fetchOptions.headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await fetch("/api/orders/approve", fetchOptions);
+      if (res.status === 401) {
+        alert("Session Expired. Please log in again.");
         onLogout();
+        localStorage.removeItem("ginza_token");
         return;
       }
       if (res.ok) {
-      setOrders(prev =>
-        prev.map(o =>
-          selectedOrders.has(o.id)
-            ? { ...o, processed_by_finance: true, payment_method: null }
-            : o
-        )
-      );
-      setSelectedOrders(new Set());
+        setSelectedOrders(new Set());
+        fetchOrders();
+      }
+    } catch (e) {
+      console.error("Approve error:", e);
     }
-  } catch {}
+    setProcessing(false);
+  };
 
-  setProcessing(false);
-};
+  const handleSetPaymentMode = async (bank: 'UBI' | 'SBI') => {
+    if (selectedOrders.size === 0) return;
+    setProcessing(true);
+    try {
+      const token = localStorage.getItem("ginza_token");
+      const fetchOptions: any = {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds: Array.from(selectedOrders), bank }),
+        credentials: 'include'
+      };
+      if (token) {
+        fetchOptions.headers['Authorization'] = `Bearer ${token}`;
+      }
 
-const handleSetPaymentMode = async (bank: 'UBI' | 'SBI') => {
-  if (selectedOrders.size === 0) return;
-  setProcessing(true);
-  try {
-    const res = await fetch("/api/orders/set-payment-mode", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        orderIds: Array.from(selectedOrders),
-        bank,
-        markApproved: true
-      }),
-      credentials: 'include'
-    });
-
-    if (res.status === 401 || res.status === 403) {
-      onLogout();
-      return;
+      const res = await fetch("/api/orders/set-payment-mode", fetchOptions);
+      if (res.status === 401) {
+        alert("Session Expired. Please log in again.");
+        onLogout();
+        localStorage.removeItem("ginza_token");
+        return;
+      }
+      const data = await res.json();
+      if (data.success) {
+        setSelectedOrders(new Set());
+        fetchOrders();
+      }
+    } catch (e) {
+      console.error("Set payment mode error:", e);
     }
+    setProcessing(false);
+  };
 
-    if (res.ok) {
-      setOrders(prev =>
-        prev.map(o =>
-          selectedOrders.has(o.id)
-            ? { ...o, processed_by_finance: true, payment_method: bank }
-            : o
-        )
-      );
-      setSelectedOrders(new Set());
-    }
-  } catch {}
+  const formatDateSafe = (dateStr: string | number | Date) => {
+    if (!dateStr) return "-";
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "-";
+    return d.toLocaleDateString();
+  };
 
-  setProcessing(false);
-};
-
-  // ✅ FIXED FILTERING - Use created_at instead of timestamp
   const filteredOrders = orders.filter(o => {
-    const matchesDate = filterDate ? new Date(o.created_at).toISOString().split('T')[0] === filterDate : true;
-    const matchesUnit = filterUnit ? o.unit.toLowerCase().includes(filterUnit.toLowerCase()) : true;
-    const matchesBeneficiary = filterBeneficiary ? o.beneficiary_name.toLowerCase().includes(filterBeneficiary.toLowerCase()) : true;
-    const status = o.processed_by_finance ? "Approved" : "Pending";
+    let matchesDate = true;
+    const d = new Date(o.timestamp);
+    const isValidDate = !isNaN(d.getTime());
+
+    if (filterDate && isValidDate) {
+      const start = new Date(filterDate);
+      start.setHours(0, 0, 0, 0);
+      const end = filterEndDate ? new Date(filterEndDate) : new Date(filterDate);
+      end.setHours(23, 59, 59, 999);
+      matchesDate = d >= start && d <= end;
+    }
+
+    if (filterMonth && isValidDate) {
+      matchesDate = matchesDate && (d.getMonth() + 1).toString() === filterMonth;
+    }
+
+    if (filterYear && isValidDate) {
+      matchesDate = matchesDate && d.getFullYear().toString() === filterYear;
+    }
+
+    const matchesUnit = filterUnit ? (o.unit || "").toLowerCase().includes(filterUnit.toLowerCase()) : true;
+    const matchesBeneficiary = filterBeneficiary ? (o.beneficiary_name || "").toLowerCase().includes(filterBeneficiary.toLowerCase()) : true;
+    const status = (o.processed_by_finance || o.approved_by_unit) ? "Approved" : "Pending";
     const matchesStatus = filterStatus ? status === filterStatus : true;
     return matchesDate && matchesUnit && matchesBeneficiary && matchesStatus;
   });
@@ -376,6 +466,10 @@ const handleSetPaymentMode = async (bank: 'UBI' | 'SBI') => {
           </div>
           
           <div className="flex items-center gap-4">
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-emerald-50 border border-emerald-100 rounded-full">
+              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+              <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Session Active</span>
+            </div>
             <div className="text-right hidden sm:block">
               <p className="text-xs font-black text-slate-900">{user.firstName} {user.lastName}</p>
               <p className="text-[10px] font-bold text-slate-500">{user.email}</p>
@@ -395,15 +489,18 @@ const handleSetPaymentMode = async (bank: 'UBI' | 'SBI') => {
           )}
           
           {user.role === 'Unit Team' && (
-            <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Calendar className="w-4 h-4" />} label="My Records" />
+            <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Calendar className="w-4 h-4" />} label="Database" />
           )}
 
           {user.role === 'Finance Team' && (
-            <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Calendar className="w-4 h-4" />} label="Pending Orders" />
+            <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Calendar className="w-4 h-4" />} label="Pending Processing" />
           )}
 
           {user.role === 'Master' && (
-            <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Calendar className="w-4 h-4" />} label="All Records" />
+            <>
+              <TabButton active={activeTab === 'history'} onClick={() => setActiveTab('history')} icon={<Calendar className="w-4 h-4" />} label="Unit Submissions" />
+              <TabButton active={activeTab === 'finance'} onClick={() => setActiveTab('finance')} icon={<IndianRupee className="w-4 h-4" />} label="Finance View" />
+            </>
           )}
         </div>
 
@@ -414,47 +511,57 @@ const handleSetPaymentMode = async (bank: 'UBI' | 'SBI') => {
             </motion.div>
           )}
 
-          {activeTab === 'history' && (
+          {(activeTab === 'history' || (activeTab === 'finance' && user.role === 'Master')) && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
               <div className="p-6 border-b border-slate-100 space-y-4">
-                <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="flex items-center justify-between">
                   <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">
-                    {user.role === 'Unit Team' ? "My Records (Last 5 Days)" : user.role === 'Finance Team' ? "Pending Orders" : "All Records"}
+                    {activeTab === 'history' ? (user.role === 'Master' ? "All Submissions" : "Records Table") : "Finance Processing View"}
                   </h2>
-                  
-                  {/* ✅ Only Finance Team & Master see buttons */}
-                  {(user.role === 'Finance Team' || user.role === 'Master') && (
-                    <div className="flex gap-2 flex-wrap">
-                      <button 
-                        onClick={handleApprove}
-                        disabled={selectedOrders.size === 0 || processing}
-                        className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-emerald-600 disabled:opacity-50 transition-all"
-                      >
-                        {processing ? "Processing..." : `✓ Approve (${selectedOrders.size})`}
-                      </button>
-                      <button 
-                        onClick={() => handleSetPaymentMode('UBI')} 
-                        disabled={selectedOrders.size === 0 || processing} 
-                        className="bg-blue-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700 disabled:opacity-50 transition-all"
-                      >
-                        💳 UBI
-                      </button>
-                      <button 
-                        onClick={() => handleSetPaymentMode('SBI')} 
-                        disabled={selectedOrders.size === 0 || processing} 
-                        className="bg-blue-600 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-blue-700 disabled:opacity-50 transition-all"
-                      >
-                        💳 SBI
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex gap-2">
+                    {(user.role === 'Finance Team' || user.role === 'Master') && activeTab === 'history' && (
+                      <>
+                        <button 
+                          onClick={handleApprove}
+                          disabled={selectedOrders.size === 0 || processing}
+                          className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-emerald-600 disabled:opacity-50 transition-all"
+                        >
+                          {processing ? "..." : "Approve Selected"}
+                        </button>
+                        <button onClick={() => handleSetPaymentMode('UBI')} disabled={selectedOrders.size === 0 || processing} className="bg-[#673ab7] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-[#5e35b1] disabled:opacity-50 transition-all">UBI Payment</button>
+                        <button onClick={() => handleSetPaymentMode('SBI')} disabled={selectedOrders.size === 0 || processing} className="bg-[#673ab7] text-white px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-[#5e35b1] disabled:opacity-50 transition-all">SBI Payment</button>
+                      </>
+                    )}
+                  </div>
                 </div>
 
-                {/* Filters */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                {/* Filters Row */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2">
                   <div className="space-y-1">
-                    <label className="text-[8px] font-black text-slate-400 uppercase">Filter Date</label>
-                    <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-[10px] font-bold outline-none focus:border-[#673ab7]" />
+                    <label className="text-[8px] font-black text-slate-400 uppercase">Start Date</label>
+                    <input type="date" value={filterDate} onClick={(e) => e.currentTarget.showPicker?.()} onChange={(e) => setFilterDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-[10px] font-bold outline-none focus:border-[#673ab7]" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[8px] font-black text-slate-400 uppercase">End Date</label>
+                    <input type="date" value={filterEndDate} onClick={(e) => e.currentTarget.showPicker?.()} onChange={(e) => setFilterEndDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-[10px] font-bold outline-none focus:border-[#673ab7]" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[8px] font-black text-slate-400 uppercase">Month</label>
+                    <select value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-[10px] font-bold outline-none focus:border-[#673ab7]">
+                      <option value="">All Months</option>
+                      {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((m, i) => (
+                        <option key={m} value={(i + 1).toString()}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[8px] font-black text-slate-400 uppercase">Year</label>
+                    <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-[10px] font-bold outline-none focus:border-[#673ab7]">
+                      <option value="">All Years</option>
+                      {[2023, 2024, 2025, 2026].map(y => (
+                        <option key={y} value={y.toString()}>{y}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="space-y-1">
                     <label className="text-[8px] font-black text-slate-400 uppercase">Filter Unit</label>
@@ -467,10 +574,9 @@ const handleSetPaymentMode = async (bank: 'UBI' | 'SBI') => {
                   <div className="space-y-1">
                     <label className="text-[8px] font-black text-slate-400 uppercase">Filter Status</label>
                     <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-[10px] font-bold outline-none focus:border-[#673ab7]">
-                      <option value="">All</option>
+                      <option value="">All Status</option>
                       <option value="Pending">Pending</option>
                       <option value="Approved">Approved</option>
-                      
                     </select>
                   </div>
                 </div>
@@ -480,11 +586,9 @@ const handleSetPaymentMode = async (bank: 'UBI' | 'SBI') => {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50">
-                      {(user.role === 'Finance Team' || user.role === 'Master') && (
-                        <th className="p-4 border-b border-slate-100 w-10">
-                          <Square className="w-4 h-4 text-slate-300" />
-                        </th>
-                      )}
+                      <th className="p-4 border-b border-slate-100 w-10">
+                        <Square className="w-4 h-4 text-slate-300" />
+                      </th>
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Date</th>
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Unit</th>
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Bill Date</th>
@@ -493,47 +597,41 @@ const handleSetPaymentMode = async (bank: 'UBI' | 'SBI') => {
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Account</th>
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Amount</th>
                       <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Status</th>
-                      <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Payment</th>
+                      <th className="p-4 border-b border-slate-100 text-[10px] font-black text-slate-500 uppercase tracking-widest">Payment Mode</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredOrders.length === 0 ? (
-                      <tr><td colSpan={user.role === 'Unit Team' ? 9 : 10} className="p-12 text-center text-slate-400 font-bold uppercase text-xs">No records found</td></tr>
-                    ) : (
+    {filteredOrders.length === 0 ? (
+      <tr><td colSpan={10} className="p-12 text-center text-slate-400 font-bold uppercase text-xs tracking-widest">No records found matching your filters</td></tr>
+    ) : (
                       filteredOrders.map((o) => (
-                        <tr key={o.id} className={`transition-colors ${o.processed_by_finance ? "bg-emerald-100/60" : "hover:bg-slate-50"}`}>
-                          {(user.role === 'Finance Team' || user.role === 'Master') && (
-                            <td className="p-4 border-b border-slate-50">
-                              {!o.processed_by_finance ? (
-                                <button onClick={() => toggleOrderSelection(o.id)} className="text-[#673ab7]">
-                                  {selectedOrders.has(o.id) ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
-                                </button>
-                              ) : (
-                                <div className="text-emerald-600">
-                                  <CheckCircle2 className="w-5 h-5 fill-emerald-50" />
-                                </div>
-                              )}
-                            </td>
-                          )}
-                          <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{new Date(o.created_at).toLocaleDateString()}</td>
+                        <tr key={o.id} className={`transition-colors group ${o.processed_by_finance ? "bg-emerald-100/60" : o.approved_by_unit ? "bg-emerald-50/60" : "hover:bg-slate-50"}`}>
+                          <td className="p-4 border-b border-slate-50">
+                            {((user.role === 'Finance Team' || user.role === 'Master') && !o.processed_by_finance) ? (
+                              <button onClick={() => toggleOrderSelection(o.id)} className="text-[#673ab7]">
+                                {selectedOrders.has(o.id) ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5" />}
+                              </button>
+                            ) : (
+                              <div className="text-emerald-600">
+                                <CheckCircle2 className="w-5 h-5 fill-emerald-50" />
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{formatDateSafe(o.timestamp)}</td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-black text-slate-900">{o.unit}</td>
-                          <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{new Date(o.bill_date).toLocaleDateString()}</td>
-                          <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{new Date(o.due_date).toLocaleDateString()}</td>
+                          <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{formatDateSafe(o.bill_date)}</td>
+                          <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{formatDateSafe(o.due_date)}</td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-900">{o.beneficiary_name}</td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-500">{o.account_no}</td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-black text-[#673ab7]">₹{o.amount.toLocaleString()}</td>
                           <td className="p-4 border-b border-slate-50">
                             <span className={`text-[8px] font-black px-2 py-1 rounded uppercase tracking-widest ${
-                              o.processed_by_finance 
-                                ? "bg-emerald-100 text-emerald-700"
-                                : o.approved_by_unit 
-                                  ? "bg-blue-100 text-blue-700"
-                                  : "bg-amber-100 text-amber-700"
+                              (o.processed_by_finance || o.approved_by_unit) ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"
                             }`}>
-                              {o.processed_by_finance ? "Approved" : "Pending"}
+                              {(o.processed_by_finance || o.approved_by_unit) ? "Approved" : "Pending"}
                             </span>
                           </td>
-                          <td className="p-4 border-b border-slate-50 text-[10px] font-black text-slate-900 uppercase">{o.payment_method ? o.payment_method : "-"}</td>
+                          <td className="p-4 border-b border-slate-50 text-[10px] font-black text-slate-900 uppercase">{o.payment_method || "-"}</td>
                         </tr>
                       ))
                     )}
@@ -584,10 +682,15 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
   const watchedBeneficiaryName = watch("beneficiaryName");
 
   useEffect(() => {
-    fetch("/api/units").then(r => r.json()).then(d => {
-      if (Array.isArray(d)) setUnits(d);
-      else if (d && d.units) setUnits(d.units);
-    });
+    const token = localStorage.getItem("ginza_token");
+    const headers: any = { credentials: 'include' };
+    if (token) {
+      headers.headers = { 'Authorization': `Bearer ${token}` };
+    }
+    fetch("/api/units", headers)
+      .then(r => r.json())
+      .then(d => setUnits(d.units || d))
+      .catch(e => console.error("Units fetch error:", e));
   }, []);
 
   useEffect(() => {
@@ -595,11 +698,18 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
       if (watchedBeneficiaryName?.length >= 2) {
         setSearching(true);
         try {
-          const res = await fetch(`/api/beneficiaries/search?name=${encodeURIComponent(watchedBeneficiaryName)}`);
+          const token = localStorage.getItem("ginza_token");
+          const headers: any = { credentials: 'include' };
+          if (token) {
+            headers.headers = { 'Authorization': `Bearer ${token}` };
+          }
+          const res = await fetch(`/api/beneficiaries/search?name=${encodeURIComponent(watchedBeneficiaryName)}`, headers);
           const data = await res.json();
           setBeneficiarySuggestions(data.beneficiaries || []);
           setShowSuggestions(true);
-        } catch (e) {}
+        } catch (e) {
+          console.error("Beneficiary search error:", e);
+        }
         setSearching(false);
       } else {
         setShowSuggestions(false);
@@ -613,11 +723,18 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch("/api/submit", {
+      const token = localStorage.getItem("ginza_token");
+      const headers: any = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
-      });
+        credentials: 'include'
+      };
+      if (token) {
+        headers.headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await fetch("/api/submit", headers);
       if (res.ok) {
         setSubmitted(true);
         reset();
@@ -657,7 +774,7 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
         <div className="space-y-4">
           <div className="space-y-2">
             <label className="text-sm font-black text-slate-900">Email Address <span className="text-red-500 font-black">*</span></label>
-            <input {...register("email")} placeholder="your.email@ginzalimited.com" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all" />
+            <input {...register("email")} placeholder="your.email@ginzalimited.com" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all placeholder:text-slate-300 placeholder:font-normal" />
             {errors.email && <p className="text-[10px] font-bold text-red-500">{errors.email.message}</p>}
           </div>
 
@@ -677,7 +794,7 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
         <div className="space-y-4">
           <div className="space-y-2 relative">
             <label className="text-sm font-black text-slate-900">Beneficiary Name <span className="text-red-500 font-black">*</span></label>
-            <input {...register("beneficiaryName")} placeholder="Search or enter name" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all" />
+            <input {...register("beneficiaryName")} placeholder="Search or enter name" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all placeholder:text-slate-300 placeholder:font-normal" />
             {showSuggestions && beneficiarySuggestions.length > 0 && (
               <div className="absolute z-50 w-full bg-white border border-slate-200 rounded-lg shadow-xl mt-1 overflow-hidden">
                 {beneficiarySuggestions.map((b, i) => (
@@ -699,12 +816,12 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-sm font-black text-slate-900">Account Number <span className="text-red-500 font-black">*</span></label>
-              <input {...register("accountNo")} placeholder="Bank Account #" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all" />
+              <input {...register("accountNo")} placeholder="Bank Account #" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all placeholder:text-slate-300 placeholder:font-normal" />
               {errors.accountNo && <p className="text-[10px] font-bold text-red-500">{errors.accountNo.message}</p>}
             </div>
             <div className="space-y-2">
               <label className="text-sm font-black text-slate-900">IFSC Code <span className="text-red-500 font-black">*</span></label>
-              <input {...register("ifscCode")} placeholder="11-character IFSC" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all" />
+              <input {...register("ifscCode")} placeholder="11-character IFSC" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all placeholder:text-slate-300 placeholder:font-normal" />
               {errors.ifscCode && <p className="text-[10px] font-bold text-red-500">{errors.ifscCode.message}</p>}
             </div>
           </div>
@@ -715,7 +832,7 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
       <div className="bg-white rounded-xl shadow-md p-6 space-y-6">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-black text-slate-900 uppercase">Bill Details</h3>
-          <button type="button" onClick={() => append({ billDate: "", dueDate: "", amount: "" as any })} className="text-[10px] font-black text-[#673ab7] uppercase tracking-widest hover:bg-indigo-50 px-2 py-1 rounded transition-all">+ ADD BILL</button>
+          <button type="button" onClick={() => append({ billDate: "", dueDate: "", amount: "" as any })} className="text-[10px] font-black text-[#673ab7] uppercase tracking-widest hover:bg-indigo-50 px-2 py-1 rounded transition-all">+ADD NEW</button>
         </div>
         
         <div className="space-y-4">
@@ -724,11 +841,11 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-500">Bill Date</label>
-                  <input type="date" {...register(`bills.${i}.billDate`)} className="w-full bg-transparent border-b border-slate-200 py-1 text-xs font-black outline-none focus:border-[#673ab7]" />
+                  <input type="date" {...register(`bills.${i}.billDate`)} onClick={(e) => e.currentTarget.showPicker?.()} className="w-full bg-transparent border-b border-slate-200 py-1 text-xs font-black outline-none focus:border-[#673ab7]" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-500">Due Date</label>
-                  <input type="date" {...register(`bills.${i}.dueDate`)} className="w-full bg-transparent border-b border-slate-200 py-1 text-xs font-black outline-none focus:border-[#673ab7]" />
+                  <input type="date" {...register(`bills.${i}.dueDate`)} onClick={(e) => e.currentTarget.showPicker?.()} className="w-full bg-transparent border-b border-slate-200 py-1 text-xs font-black outline-none focus:border-[#673ab7]" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-500">Amount</label>
@@ -739,7 +856,7 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
                 </div>
               </div>
               {fields.length > 1 && (
-                <button type="button" onClick={() => remove(i)} className="absolute -right-2 -top-2 bg-white p-1.5 rounded-full shadow-md text-slate-300 hover:text-red-500 transition-all border border-slate-200">
+                <button type="button" onClick={() => remove(i)} className="absolute -right-2 -top-2 bg-white p-1.5 rounded-full shadow-md text-slate-300 hover:text-red-500 transition-all border border-slate-100">
                   <Trash2 className="w-3 h-3" />
                 </button>
               )}
@@ -753,7 +870,7 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
       <div className="flex items-center justify-between pt-4">
         <button type="button" onClick={() => { reset(); setError(null); }} className="text-xs font-black text-slate-500 hover:text-slate-700 px-4 py-2 uppercase tracking-widest transition-all">Clear Form</button>
         <button disabled={submitting} className="bg-[#673ab7] text-white px-10 py-3 rounded-lg font-black text-sm shadow-lg hover:bg-[#5e35b1] transition-all flex items-center gap-2 uppercase tracking-widest">
-          {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-4 h-4" /> Submit</>}
+          {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-4 h-4" /> Submit Responses</>}
         </button>
       </div>
     </form>
