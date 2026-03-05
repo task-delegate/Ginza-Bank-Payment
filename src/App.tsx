@@ -28,8 +28,12 @@ import {
   Square,
   ArrowRight,
   Eye,
-  EyeOff
+  EyeOff,
+  Search,
+  X
 } from "lucide-react";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 
 const billSchema = z.object({
   billDate: z.string().min(1, "Bill date is required"),
@@ -295,8 +299,8 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
   const [processing, setProcessing] = useState(false);
   
   // Filters
-  const [filterDate, setFilterDate] = useState("");
-  const [filterEndDate, setFilterEndDate] = useState("");
+  const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([null, null]);
+  const [startDate, endDate] = dateRange;
   const [filterMonth, setFilterMonth] = useState("");
   const [filterYear, setFilterYear] = useState("");
   const [filterUnit, setFilterUnit] = useState("");
@@ -426,13 +430,14 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
 
   const filteredOrders = orders.filter(o => {
     let matchesDate = true;
-    const d = new Date(o.timestamp);
+    const submissionDate = o.created_at || o.timestamp;
+    const d = new Date(submissionDate);
     const isValidDate = !isNaN(d.getTime());
 
-    if (filterDate && isValidDate) {
-      const start = new Date(filterDate);
+    if (startDate && isValidDate) {
+      const start = new Date(startDate);
       start.setHours(0, 0, 0, 0);
-      const end = filterEndDate ? new Date(filterEndDate) : new Date(filterDate);
+      const end = endDate ? new Date(endDate) : new Date(startDate);
       end.setHours(23, 59, 59, 999);
       matchesDate = d >= start && d <= end;
     }
@@ -536,14 +541,21 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                 </div>
 
                 {/* Filters Row */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2">
-                  <div className="space-y-1">
-                    <label className="text-[8px] font-black text-slate-400 uppercase">Start Date</label>
-                    <input type="date" value={filterDate} onClick={(e) => e.currentTarget.showPicker?.()} onChange={(e) => setFilterDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-[10px] font-bold outline-none focus:border-[#673ab7]" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[8px] font-black text-slate-400 uppercase">End Date</label>
-                    <input type="date" value={filterEndDate} onClick={(e) => e.currentTarget.showPicker?.()} onChange={(e) => setFilterEndDate(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-[10px] font-bold outline-none focus:border-[#673ab7]" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
+                  <div className="space-y-1 col-span-1 sm:col-span-2">
+                    <label className="text-[8px] font-black text-slate-400 uppercase">Date Range (Start - End)</label>
+                    <div className="relative datepicker-container">
+                      <DatePicker
+                        selectsRange={true}
+                        startDate={startDate}
+                        endDate={endDate}
+                        onChange={(update: any) => setDateRange(update)}
+                        isClearable={true}
+                        placeholderText="Select Date Range"
+                        className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-[10px] font-bold outline-none focus:border-[#673ab7]"
+                      />
+                      <Calendar className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+                    </div>
                   </div>
                   <div className="space-y-1">
                     <label className="text-[8px] font-black text-slate-400 uppercase">Month</label>
@@ -578,6 +590,21 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                       <option value="Pending">Pending</option>
                       <option value="Approved">Approved</option>
                     </select>
+                  </div>
+                  <div className="flex items-end">
+                    <button 
+                      onClick={() => {
+                        setDateRange([null, null]);
+                        setFilterMonth("");
+                        setFilterYear("");
+                        setFilterUnit("");
+                        setFilterBeneficiary("");
+                        setFilterStatus("");
+                      }}
+                      className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 py-1.5 rounded text-[10px] font-black uppercase tracking-widest transition-all"
+                    >
+                      Clear All
+                    </button>
                   </div>
                 </div>
               </div>
@@ -617,7 +644,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                               </div>
                             )}
                           </td>
-                          <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{formatDateSafe(o.timestamp)}</td>
+                          <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{formatDateSafe(o.created_at || o.timestamp)}</td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-black text-slate-900">{o.unit}</td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{formatDateSafe(o.bill_date)}</td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{formatDateSafe(o.due_date)}</td>
@@ -705,13 +732,18 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
           }
           const res = await fetch(`/api/beneficiaries/search?name=${encodeURIComponent(watchedBeneficiaryName)}`, headers);
           const data = await res.json();
-          setBeneficiarySuggestions(data.beneficiaries || []);
-          setShowSuggestions(true);
+          // Only update if the current input still matches the search term
+          if (watchedBeneficiaryName === watch("beneficiaryName")) {
+            setBeneficiarySuggestions(data.beneficiaries || []);
+            setShowSuggestions(true);
+          }
         } catch (e) {
           console.error("Beneficiary search error:", e);
+        } finally {
+          setSearching(false);
         }
-        setSearching(false);
       } else {
+        setBeneficiarySuggestions([]);
         setShowSuggestions(false);
       }
     };
@@ -794,18 +826,47 @@ function SubmissionForm({ user, onSuccess }: { user: UserData, onSuccess: () => 
         <div className="space-y-4">
           <div className="space-y-2 relative">
             <label className="text-sm font-black text-slate-900">Beneficiary Name <span className="text-red-500 font-black">*</span></label>
-            <input {...register("beneficiaryName")} placeholder="Search or enter name" className="w-full border-b border-slate-200 py-2 outline-none focus:border-[#673ab7] text-sm font-bold transition-all placeholder:text-slate-300 placeholder:font-normal" />
+            <div className="relative">
+              <input 
+                {...register("beneficiaryName")} 
+                placeholder="Search or enter name" 
+                autoComplete="off"
+                className="w-full border-b border-slate-200 py-2 pr-8 outline-none focus:border-[#673ab7] text-sm font-bold transition-all placeholder:text-slate-300 placeholder:font-normal" 
+              />
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                {searching && <Loader2 className="w-3 h-3 animate-spin text-slate-400" />}
+                {watchedBeneficiaryName && (
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setValue("beneficiaryName", "");
+                      setBeneficiarySuggestions([]);
+                      setShowSuggestions(false);
+                    }}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
             {showSuggestions && beneficiarySuggestions.length > 0 && (
-              <div className="absolute z-50 w-full bg-white border border-slate-200 rounded-lg shadow-xl mt-1 overflow-hidden">
+              <div className="absolute z-50 w-full bg-white border border-slate-200 rounded-lg shadow-xl mt-1 overflow-hidden max-h-60 overflow-y-auto">
                 {beneficiarySuggestions.map((b, i) => (
                   <button key={i} type="button" onClick={() => {
                     setValue("beneficiaryName", b.name);
                     setValue("accountNo", b.account_no);
                     setValue("ifscCode", b.ifsc_code);
+                    setBeneficiarySuggestions([]);
                     setShowSuggestions(false);
-                  }} className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 transition-colors">
-                    <p className="text-xs font-black text-slate-900">{b.name}</p>
-                    <p className="text-[10px] font-bold text-slate-300">{b.account_no} | {b.ifsc_code}</p>
+                  }} className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 transition-colors group">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-black text-slate-900 group-hover:text-[#673ab7]">{b.name}</p>
+                        <p className="text-[10px] font-bold text-slate-400">{b.account_no} | {b.ifsc_code}</p>
+                      </div>
+                      <ArrowRight className="w-3 h-3 text-slate-200 group-hover:text-[#673ab7] transition-all" />
+                    </div>
                   </button>
                 ))}
               </div>

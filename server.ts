@@ -111,7 +111,8 @@ app.get("/api/beneficiaries/search", async (req, res) => {
       const { data, error: sbError } = await supabase
         .from("beneficiary_details")
         .select("*")
-        .ilike("name", `%${name}%`)
+        .ilike("name", `${name}%`)
+        .order("name")
         .limit(10);
       
       if (!sbError && data) {
