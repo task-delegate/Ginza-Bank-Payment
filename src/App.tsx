@@ -423,14 +423,24 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
 
   const formatDateSafe = (dateStr: string | number | Date) => {
     if (!dateStr) return "-";
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return "-";
-    return d.toLocaleDateString();
+    try {
+      // Handle potential space instead of T in some date strings
+      const normalizedDate = typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr;
+      const d = new Date(normalizedDate);
+      if (isNaN(d.getTime())) return "-";
+      return d.toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    } catch (e) {
+      return "-";
+    }
   };
 
   const filteredOrders = orders.filter(o => {
     let matchesDate = true;
-    const submissionDate = o.created_at || o.timestamp;
+    const submissionDate = o.created_at || o.timestamp || o.bill_date;
     const d = new Date(submissionDate);
     const isValidDate = !isNaN(d.getTime());
 
@@ -543,7 +553,7 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                 {/* Filters Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
                   <div className="space-y-1 col-span-1 sm:col-span-2">
-                    <label className="text-[8px] font-black text-slate-400 uppercase">Date Range (Start - End)</label>
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Date Range (Start - End)</label>
                     <div className="relative datepicker-container">
                       <DatePicker
                         selectsRange={true}
@@ -551,7 +561,11 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                         endDate={endDate}
                         onChange={(update: any) => setDateRange(update)}
                         isClearable={true}
-                        placeholderText="Select Date Range"
+                        placeholderText="DD/MM/YYYY - DD/MM/YYYY"
+                        dateFormat="dd/MM/yyyy"
+                        showYearDropdown
+                        scrollableYearDropdown
+                        yearDropdownItemNumber={10}
                         className="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-[10px] font-bold outline-none focus:border-[#673ab7]"
                       />
                       <Calendar className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
@@ -644,7 +658,9 @@ function Dashboard({ user, onLogout }: { user: UserData, onLogout: () => void })
                               </div>
                             )}
                           </td>
-                          <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{formatDateSafe(o.created_at || o.timestamp)}</td>
+                          <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">
+                            {formatDateSafe(o.created_at || o.timestamp || o.bill_date)}
+                          </td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-black text-slate-900">{o.unit}</td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{formatDateSafe(o.bill_date)}</td>
                           <td className="p-4 border-b border-slate-50 text-[10px] font-bold text-slate-600">{formatDateSafe(o.due_date)}</td>
