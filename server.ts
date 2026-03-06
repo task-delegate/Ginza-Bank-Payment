@@ -72,6 +72,30 @@ app.post("/api/auth/login", async (req, res) => {
   } catch (error: any) { res.status(401).json({ error: error.message }); }
 });
 
+app.post("/api/auth/register", async (req, res) => {
+  const { email, password, firstName, lastName, role, units } = req.body;
+  if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const { data, error } = await supabase.from("users").insert({
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      first_name: firstName,
+      last_name: lastName,
+      role: role || "Unit Team",
+      units: units || []
+    }).select().single();
+
+    if (error) {
+      if (error.code === "23505") throw new Error("Email already registered");
+      throw error;
+    }
+    res.json({ success: true, user: data });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 app.post("/api/auth/logout", (req, res) => {
   res.clearCookie("session");
   res.json({ success: true });
