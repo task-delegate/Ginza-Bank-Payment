@@ -28,7 +28,7 @@ const supabase = supabaseUrl && supabaseKey
   : null;
 
 // Google Sheets configuration
-const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL || "https://script.google.com/macros/s/AKfycbxMDm3anDFkSTu0KYgQgcWBtBlXdXq8e4r_1B8x4OG-Q6zdC-aSKVZ8D3zM6o82Ld0/exec";
+const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL || "https://script.google.com/macros/s/AKfycbxFM-RSvTv_36DR3SyzzwibbWlmIsuyWnrNdSZ9NcuRiFMP7xddIcEUDov_AoD77TxV/exec";
 
 const ALL_UNITS = [
   "CKU", "WARP", "EMB", "HOOK & EYE", "TLU", "VAU", "CUP",
